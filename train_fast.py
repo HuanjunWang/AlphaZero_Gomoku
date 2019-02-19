@@ -7,6 +7,8 @@ An implementation of the training pipeline of AlphaZero for Gomoku
 
 from __future__ import print_function
 import random
+import time
+
 import numpy as np
 from collections import defaultdict, deque
 from game import Board, Game
@@ -53,6 +55,7 @@ class SelfPlayer(Process):
     def __init__(self, config, sample_queue, model_queue):
         super(SelfPlayer, self).__init__()
 
+        self.config = config
         self.temp = config['temperature']
 
         self.sample_queue = sample_queue
@@ -63,14 +66,9 @@ class SelfPlayer(Process):
                            n_in_row=config['n_in_row'])
         self.game = Game(self.board)
 
-        self.policy_value_net = PolicyValueNet(config['board_width'],
-                                               config['board_height'],
-                                               model_file=config['init_model'])
 
-        self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
-                                      c_puct=config['c_puct'],
-                                      n_playout=config['n_playout'],
-                                      is_selfplay=1)
+
+
 
     def collect_selfplay_data(self, n_games=1):
         """collect self-play data for training"""
@@ -82,8 +80,18 @@ class SelfPlayer(Process):
         return samples
 
     def run(self):
+        self.policy_value_net = PolicyValueNet(self.config['board_width'],
+                                               self.config['board_height'],
+                                               model_file=self.config['init_model'])
+        self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
+                                      c_puct=self.config['c_puct'],
+                                      n_playout=self.config['n_playout'],
+                                      is_selfplay=1)
+
+        print("running")
         while True:
             weights = self.model_queue.get()
+            print("get weight")
             self.policy_value_net.set_weight(weights)
             # sample
             samples = self.collect_selfplay_data()
@@ -223,15 +231,20 @@ class TrainPipelineFast(object):
         max_steps = 0
         max_games = 0
         train_step = 0
-        while True:
-            game_sample = self.sample_queue.get(block=True, timeout=.1)
 
-            if game_sample:
+        weights = self.policy_value_net.get_weight()
+        for model_queue in self.model_queues:
+            model_queue.put(weights)
+
+        while True:
+            try:
+                game_sample = self.sample_queue.get(block=False)
                 max_games += 1
                 max_steps += len(game_sample)
-
                 game_sample = self.get_equi_data(game_sample)
                 self.data_buffer.extend(game_sample)
+            except Exception:
+                pass
 
             if len(self.data_buffer) > self.config['batch_size']:
                 train_step += 1
@@ -259,7 +272,8 @@ class TrainPipelineFast(object):
                         break
                     if max_games > self.config['max_game_num']:
                         break
-
+            else:
+                time.sleep(1)
 
 if __name__ == '__main__':
     training_pipeline = TrainPipelineFast(CONFIG)
