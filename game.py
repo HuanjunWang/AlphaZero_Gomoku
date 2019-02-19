@@ -194,6 +194,7 @@ class Game(object):
         self.board.init_board()
         p1, p2 = self.board.players
         states, mcts_probs, current_players = [], [], []
+
         while True:
             move, move_probs = player.get_action(self.board,
                                                  temp=temp,
@@ -207,6 +208,7 @@ class Game(object):
             if is_shown:
                 self.graphic(self.board, p1, p2)
             end, winner = self.board.game_end()
+
             if end:
                 # winner from the perspective of the current player of each state
                 winners_z = np.zeros(len(current_players))
